@@ -1332,57 +1332,55 @@ function renderMD(t){return t.split('\n').map(l=>{
 function il(t){return es(t).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*([^*]+)\*/g,'<em>$1</em>');}
 function es(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// ── PWA Icon via canvas ───────────────────────────────────────────────────
-(function(){
-  const c=document.createElement('canvas');c.width=512;c.height=512;
-  const x=c.getContext('2d');
-  // Background
-  const bg=x.createLinearGradient(0,0,512,512);
-  bg.addColorStop(0,'#020817');bg.addColorStop(1,'#0a1628');
-  x.fillStyle=bg;x.roundRect(0,0,512,512,80);x.fill();
-  // Gold ring
-  x.strokeStyle='#f0c060';x.lineWidth=18;x.beginPath();x.arc(256,256,210,0,Math.PI*2);x.stroke();
-  // Cyan inner ring
-  x.strokeStyle='#38bdf8';x.lineWidth=8;x.beginPath();x.arc(256,256,188,0,Math.PI*2);x.stroke();
-  // Central hexagon
-  x.fillStyle='#0f1e3d';x.beginPath();
-  for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-30);x.lineTo(256+150*Math.cos(a),256+150*Math.sin(a));}
-  x.closePath();x.fill();
-  x.strokeStyle='rgba(240,192,96,.4)';x.lineWidth=3;x.stroke();
-  // "A" letter
-  x.fillStyle='#f0c060';x.font='bold 200px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('A',256,248);
-  // "PM" below
-  x.fillStyle='#38bdf8';x.font='bold 72px sans-serif';x.fillText('PM',256,360);
-  // Glow dots at corners
-  [[90,90],[422,90],[90,422],[422,422]].forEach(([px,py])=>{
-    const g=x.createRadialGradient(px,py,0,px,py,22);
-    g.addColorStop(0,'rgba(56,189,248,.8)');g.addColorStop(1,'transparent');
-    x.fillStyle=g;x.beginPath();x.arc(px,py,22,0,Math.PI*2);x.fill();
-  });
-  const url=c.toDataURL('image/png');
-  const lnk=document.createElement('link');lnk.rel='apple-touch-icon';lnk.href=url;document.head.appendChild(lnk);
-  const lnk2=document.createElement('link');lnk2.rel='icon';lnk2.type='image/png';lnk2.href=url;document.head.appendChild(lnk2);
-})();
-
+// ── Init (MUST be before PWA canvas) ─────────────────────────────────────
 buildPL();paint();renderHistory();
+
+// ── PWA Icon via canvas (wrapped in try/catch — safe on all browsers) ────
+try{
+  (function(){
+    const c=document.createElement('canvas');c.width=512;c.height=512;
+    const x=c.getContext('2d');
+    // Polyfill roundRect for older Safari/iOS (added in Safari 15.4 only)
+    if(!x.roundRect){
+      x.roundRect=function(px,py,pw,ph,r){
+        x.beginPath();x.moveTo(px+r,py);x.lineTo(px+pw-r,py);
+        x.quadraticCurveTo(px+pw,py,px+pw,py+r);x.lineTo(px+pw,py+ph-r);
+        x.quadraticCurveTo(px+pw,py+ph,px+pw-r,py+ph);x.lineTo(px+r,py+ph);
+        x.quadraticCurveTo(px,py+ph,px,py+ph-r);x.lineTo(px,py+r);
+        x.quadraticCurveTo(px,py,px+r,py);x.closePath();
+      };
+    }
+    const bg=x.createLinearGradient(0,0,512,512);
+    bg.addColorStop(0,'#020817');bg.addColorStop(1,'#0a1628');
+    x.fillStyle=bg;x.roundRect(0,0,512,512,80);x.fill();
+    x.strokeStyle='#f0c060';x.lineWidth=18;x.beginPath();x.arc(256,256,210,0,Math.PI*2);x.stroke();
+    x.strokeStyle='#38bdf8';x.lineWidth=8;x.beginPath();x.arc(256,256,188,0,Math.PI*2);x.stroke();
+    x.fillStyle='#0f1e3d';x.beginPath();
+    for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-30);x.lineTo(256+150*Math.cos(a),256+150*Math.sin(a));}
+    x.closePath();x.fill();
+    x.strokeStyle='rgba(240,192,96,.4)';x.lineWidth=3;x.stroke();
+    x.fillStyle='#f0c060';x.font='bold 200px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('A',256,248);
+    x.fillStyle='#38bdf8';x.font='bold 72px sans-serif';x.fillText('PM',256,360);
+    [[90,90],[422,90],[90,422],[422,422]].forEach(([px,py])=>{
+      const g=x.createRadialGradient(px,py,0,px,py,22);
+      g.addColorStop(0,'rgba(56,189,248,.8)');g.addColorStop(1,'transparent');
+      x.fillStyle=g;x.beginPath();x.arc(px,py,22,0,Math.PI*2);x.fill();
+    });
+    const url=c.toDataURL('image/png');
+    const lnk=document.createElement('link');lnk.rel='apple-touch-icon';lnk.href=url;document.head.appendChild(lnk);
+    const lnk2=document.createElement('link');lnk2.rel='icon';lnk2.type='image/png';lnk2.href=url;document.head.appendChild(lnk2);
+  })();
+}catch(e){console.log('PWA icon skipped:',e.message);}
 
 // ── PWA Install Prompt ────────────────────────────────────────────────────
 let deferredInstallPrompt=null;
 window.addEventListener('beforeinstallprompt',(e)=>{
   e.preventDefault();
   deferredInstallPrompt=e;
-  // Show a subtle install banner
   const banner=document.createElement('div');
   banner.id='installBanner';
   banner.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(15,30,55,.95);border:1px solid rgba(56,189,248,.3);border-radius:12px;padding:10px 16px;display:flex;align-items:center;gap:10px;z-index:500;box-shadow:0 8px 32px rgba(0,0,0,.4);max-width:340px;width:90%';
-  banner.innerHTML=`
-    <div style="font-size:1.5rem">📱</div>
-    <div style="flex:1">
-      <div style="font-family:'Syne',sans-serif;font-size:.78rem;font-weight:700;color:#e2e8f0">Install AgentPM</div>
-      <div style="font-size:.68rem;color:#64748b">Add to home screen for offline access</div>
-    </div>
-    <button onclick="installPWA()" style="padding:6px 12px;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;border-radius:8px;color:#fff;font-size:.72rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif;white-space:nowrap">Install</button>
-    <button onclick="document.getElementById('installBanner').remove()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:1rem;padding:0;line-height:1">✕</button>`;
+  banner.innerHTML=`<div style="font-size:1.5rem">📱</div><div style="flex:1"><div style="font-family:'Syne',sans-serif;font-size:.78rem;font-weight:700;color:#e2e8f0">Install AgentPM</div><div style="font-size:.68rem;color:#64748b">Add to home screen</div></div><button onclick="installPWA()" style="padding:6px 12px;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;border-radius:8px;color:#fff;font-size:.72rem;font-weight:600;cursor:pointer">Install</button><button onclick="document.getElementById('installBanner').remove()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:1rem;padding:0">✕</button>`;
   document.body.appendChild(banner);
   setTimeout(()=>{if(document.getElementById('installBanner'))document.getElementById('installBanner').remove();},8000);
 });
@@ -1390,7 +1388,7 @@ window.addEventListener('beforeinstallprompt',(e)=>{
 async function installPWA(){
   if(!deferredInstallPrompt)return;
   deferredInstallPrompt.prompt();
-  const{outcome}=await deferredInstallPrompt.userChoice;
+  await deferredInstallPrompt.userChoice;
   deferredInstallPrompt=null;
   if(document.getElementById('installBanner'))document.getElementById('installBanner').remove();
 }
