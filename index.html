@@ -368,7 +368,7 @@ const PL=[
 ];
 
 // ── Prompts ───────────────────────────────────────────────────────────────
-function prompt(id,idea,rel,prev){
+function buildPrompt(id,idea,rel,prev){
   const ctx=(rel>1&&prev)?`\n\nPREVIOUS RELEASE CONTEXT:\n${prev}\n\nThis is Release ${rel}. Focus on DELTA — what's new or changed only.\n`:'';
   if(S.compact){
     const C={
@@ -539,7 +539,8 @@ async function runStage(id){
   const isGate=item.type==='gate';
   const maxTok=S.maxtok&&isGate?900:1800;
   const ctx=S.trim&&r.prev?r.prev.substring(0,CTX_MAX):r.prev;
-  const body=prompt(id,idea,R.indexOf(r)+1,ctx);
+  const body=buildPrompt(id,idea,R.indexOf(r)+1,ctx);
+  if(!body){inner.innerHTML=`<p style="color:#f87171">❌ No prompt found for stage "${id}"</p>`;card.classList.remove('rn');document.getElementById('ic-'+id).innerHTML=item.icon;document.getElementById('br-'+id).style.display='none';document.getElementById('sh-'+id).style.display='none';paint();return;}
   let inTok=0,outTok=0;
 
   try{
@@ -580,7 +581,10 @@ async function runStage(id){
     const idx=PL.findIndex(p=>p.id===id);
     if(idx<PL.length-1)r.unlocked[PL[idx+1].id]=true;
     if(id==='i0')r.iterateSummary=r.outputs['i0'];
-  }catch(e){inner.innerHTML=`<p style="color:#f87171">❌ ${e.message}</p>`;}
+  }catch(e){
+    console.error('AgentPM stage error:',e);
+    inner.innerHTML=`<p style="color:#f87171">❌ API Error: ${e.message}</p><p style="color:#64748b;font-size:.8rem;margin-top:6px">Check your API key and network. Open browser console (F12) for details.</p>`;
+  }
 
   card.classList.remove('rn');
   document.getElementById('ic-'+id).innerHTML=item.icon;
@@ -632,6 +636,7 @@ function newRelease(){
 // ── PDF Export ────────────────────────────────────────────────────────────
 async function exportPDF(){
   const r=cr();
+  if(Object.keys(r.outputs).length===0){alert('No stage outputs to export yet. Run at least one stage first.');return;}
   const{jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const PW=210,PH=297,ML=18,MR=18,MT=28,MB=22;
