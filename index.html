@@ -328,7 +328,22 @@ function cset(id,idea,d){
   if(!d.text||d.text.trim().length<20)return;
   try{localStorage.setItem(ck(id,idea),JSON.stringify(d));}catch{}
 }
-function clearCache(){const ks=Object.keys(localStorage).filter(k=>k.startsWith(CPFX));ks.forEach(k=>localStorage.removeItem(k));alert('Cleared '+ks.length+' cached stage(s).');}
+function clearCache(){
+  // Clear localStorage
+  const ks=Object.keys(localStorage).filter(k=>k.startsWith(CPFX));
+  ks.forEach(k=>localStorage.removeItem(k));
+  // Also purge any empty/poisoned entries from current in-memory state
+  R.forEach(rel=>{
+    Object.keys(rel.outputs).forEach(id=>{
+      if(!rel.outputs[id]||rel.outputs[id].trim().length<20){
+        delete rel.outputs[id];
+        delete rel.tok[id];
+      }
+    });
+  });
+  paint();
+  alert('Cleared '+ks.length+' cached stage(s). All empty entries removed. Ready to run fresh.');
+}
 
 // ── Pause logic ───────────────────────────────────────────────────────────
 let pauseResolver=null, pauseTimer=null;
@@ -472,14 +487,18 @@ function buildPL(){
 }
 
 function toggleCard(id){
-  const r=cr();if(!r.unlocked[id]||!r.outputs[id])return;
+  const r=cr();
+  if(!r.unlocked[id]||!r.outputs[id]||r.outputs[id].trim().length<20)return;
   const o=document.getElementById('go-'+id),a=document.getElementById('ga-'+id);
   a.textContent=o.classList.toggle('open')?'▲':'▼';
 }
 
 // ── Render state to UI ────────────────────────────────────────────────────
 function paint(){
-  const r=cr(),done=Object.keys(r.outputs).length,tot=PL.length;
+  const r=cr();
+  // Only count outputs with real content (guards against empty-string poisoned cache)
+  const done=Object.values(r.outputs).filter(v=>v&&v.trim().length>20).length;
+  const tot=PL.length;
   document.getElementById('pw').style.display=done>0?'block':'none';
   document.getElementById('pb').style.width=Math.round(done/tot*100)+'%';
   document.getElementById('ptxt').textContent=done+'/'+tot+' complete';
@@ -490,7 +509,10 @@ function paint(){
   document.getElementById('btnPDF').style.display=done===tot?'inline-block':'none';
   document.getElementById('btnNR').disabled=done<5||running;
   PL.forEach(p=>{
-    const isDone=!!r.outputs[p.id],isCached=!!(r.tok[p.id]?.cached),isUk=!!r.unlocked[p.id];
+    const hasContent=!!(r.outputs[p.id]&&r.outputs[p.id].trim().length>20);
+    const isDone=hasContent;
+    const isCached=hasContent&&!!(r.tok[p.id]?.cached);
+    const isUk=!!r.unlocked[p.id];
     const tk=r.tok[p.id]||{};
     document.getElementById('c-'+p.id).className='gc'+(isUk?' uk':'')+(isDone?(isCached?' ca':' dn'):'');
     document.getElementById('d-'+p.id).className='pdot'+(isDone?(isCached?' ca':' dn'):isUk?' uk':'');
