@@ -241,9 +241,13 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
 <!-- IDEA CARD -->
 <div class="icard">
   <label class="ilbl">🔑 Anthropic API Key</label>
-  <div style="position:relative;margin-bottom:10px">
+  <div style="position:relative;margin-bottom:6px">
     <input type="password" id="apiKey" placeholder="sk-ant-api03-… (used only in your browser, never stored on any server)"/>
     <button onclick="toggleKey()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#64748b;cursor:pointer;font-size:.95rem;padding:0">👁</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <button onclick="testKey()" id="btnTest" style="padding:5px 14px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:8px;color:#22c55e;font-size:.72rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">⚡ Test Key</button>
+    <span id="keyStatus" style="font-size:.72rem;color:#475569"></span>
   </div>
   <div style="font-size:.67rem;color:#475569;margin-bottom:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
     <span style="color:#22c55e">🔒</span> Calls <strong style="color:#94a3b8">api.anthropic.com</strong> directly from your browser. &nbsp;·&nbsp;
@@ -589,13 +593,23 @@ async function runStage(id){
   const body=buildPrompt(id,idea,R.indexOf(r)+1,ctx);
   if(!body){inner.innerHTML=`<p style="color:#f87171">❌ No prompt found for stage "${id}"</p>`;card.classList.remove('rn');document.getElementById('ic-'+id).innerHTML=item.icon;document.getElementById('br-'+id).style.display='none';document.getElementById('sh-'+id).style.display='none';paint();return;}
   let inTok=0,outTok=0;
+  let stageError=null;
 
   try{
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTok,stream:true,messages:[{role:'user',content:body}]})
+      body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:maxTok,stream:true,messages:[{role:'user',content:body}]})
     });
+
+    // ── Catch HTTP errors BEFORE trying to read the stream ────────────────
+    if(!resp.ok){
+      const errText=await resp.text();
+      let errMsg=`HTTP ${resp.status}`;
+      try{const errJson=JSON.parse(errText);errMsg=`${resp.status} — ${errJson.error?.message||errJson.error?.type||errText}`;}catch{}
+      throw new Error(errMsg);
+    }
+
     const reader=resp.body.getReader(),dec=new TextDecoder();
     while(true){
       const{done,value}=await reader.read();if(done)break;
@@ -617,21 +631,33 @@ async function runStage(id){
     }
     r.tok[id]={in:inTok,out:outTok,cached:false};
     addUsed(inTok,outTok);
-
-    // ── Estimate strategy savings ────────────────────────────────────────
-    // Strategy: Compact prompts save ~35% of input tokens vs full prompts
-    if(S.compact){ const compactSaved=Math.round(inTok*0.53); addSaved(compactSaved,0,'compact'); }
-    // Strategy: Smart max_tokens — gates capped at 900 instead of 1800 (saves ~50% potential output)
-    if(S.maxtok && isGate){ const maxTokSaved=Math.round(outTok*0.9); addSaved(0,maxTokSaved,'maxtok'); }
-
+    if(S.compact){addSaved(Math.round(inTok*0.53),0,'compact');}
+    if(S.maxtok&&isGate){addSaved(0,Math.round(outTok*0.9),'maxtok');}
     cset(id,idea,{text:r.outputs[id],i:inTok,o:outTok});
-    // ── Never cache empty outputs ─────────────────────────────────────────
     const idx=PL.findIndex(p=>p.id===id);
     if(idx<PL.length-1)r.unlocked[PL[idx+1].id]=true;
     if(id==='i0')r.iterateSummary=r.outputs['i0'];
   }catch(e){
     console.error('AgentPM stage error:',e);
-    inner.innerHTML=`<p style="color:#f87171">❌ API Error: ${e.message}</p><p style="color:#64748b;font-size:.8rem;margin-top:6px">Check your API key and network. Open browser console (F12) for details.</p>`;
+    stageError=e.message;
+    inner.innerHTML=`
+      <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px;margin:4px 0">
+        <p style="color:#f87171;font-weight:700;margin-bottom:6px">❌ API Error — Stage "${id}"</p>
+        <p style="color:#fca5a5;font-size:.85rem;margin-bottom:8px">${e.message}</p>
+        <p style="color:#64748b;font-size:.78rem;line-height:1.6">
+          Common causes:<br>
+          • Invalid or expired API key — check <a href="https://console.anthropic.com/keys" target="_blank" style="color:#38bdf8">console.anthropic.com/keys</a><br>
+          • Rate limit hit — wait 30 seconds and retry<br>
+          • Network/CORS issue — try opening browser console (F12) for details
+        </p>
+      </div>`;
+    // Stop agent mode on first real error
+    if(running){
+      running=false;
+      document.getElementById('btnAgent').innerHTML='🤖 Run Full Agentic Mode';
+      document.getElementById('btnAgent').disabled=false;
+      document.getElementById('ideaInput').disabled=false;
+    }
   }
 
   card.classList.remove('rn');
@@ -656,6 +682,34 @@ async function runStage(id){
 
 async function go(id){if(!running)await runStage(id);}
 function toggleKey(){const f=document.getElementById('apiKey');f.type=f.type==='password'?'text':'password';}
+
+async function testKey(){
+  const key=document.getElementById('apiKey').value.trim();
+  const st=document.getElementById('keyStatus');
+  const btn=document.getElementById('btnTest');
+  if(!key){st.style.color='#f87171';st.textContent='⚠ Enter API key first';return;}
+  btn.textContent='Testing…';btn.disabled=true;st.style.color='#94a3b8';st.textContent='Calling Anthropic…';
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:20,messages:[{role:'user',content:'Say OK'}]})
+    });
+    if(resp.ok){
+      const d=await resp.json();
+      const reply=d.content?.[0]?.text||'OK';
+      st.style.color='#22c55e';st.textContent=`✓ Key valid — Model responded: "${reply.substring(0,30)}"`;
+    } else {
+      const errText=await resp.text();
+      let msg=`HTTP ${resp.status}`;
+      try{const j=JSON.parse(errText);msg=`${resp.status}: ${j.error?.message||j.error?.type||errText.substring(0,80)}`;}catch{}
+      st.style.color='#f87171';st.textContent=`✗ ${msg}`;
+    }
+  }catch(e){
+    st.style.color='#f87171';st.textContent=`✗ Network error: ${e.message}`;
+  }
+  btn.textContent='⚡ Test Key';btn.disabled=false;
+}
 
 function expandAll(){
   const r=cr();
