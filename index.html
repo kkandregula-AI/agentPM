@@ -319,7 +319,7 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
 <script>
 // ── Config ───────────────────────────────────────────────────────────────
 const PRICE_IN=3/1e6, PRICE_OUT=15/1e6;
-const CPFX='agentpm3_', CTX_MAX=400, PAUSE_SECS=10;
+const CPFX='agentpm3_', CTX_MAX=1500, PAUSE_SECS=10;
 
 // ── Strategies ───────────────────────────────────────────────────────────
 const S={cache:true,compact:true,trim:true,maxtok:true,pause:true};
@@ -443,9 +443,73 @@ const PL=[
 
 // ── Prompts ───────────────────────────────────────────────────────────────
 function buildPrompt(id,idea,rel,prev){
-  const ctx=(rel>1&&prev)?`\n\nPREVIOUS RELEASE CONTEXT:\n${prev}\n\nThis is Release ${rel}. Focus on DELTA — what's new or changed only.\n`:'';
+  // ── ITERATION releases (v1.1, v1.2…) get a shorter DELTA-only prompt ──
+  if(rel>1 && prev){
+    const deltaCtx=`PRODUCT: "${idea}"\n\nWHAT WAS BUILT IN PREVIOUS RELEASE:\n${prev}\n\nThis is Release ${rel}. You MUST only output the DELTA — new items, changed items, or removed items vs the previous release. Do NOT reproduce the full document. Keep output short and focused. Use "CHANGED:", "NEW:", "REMOVED:" prefixes.`;
+    const DELTA={
+      s0:`${deltaCtx}\n\nAs Senior PM: What has changed in the Concept & Vision for this release? List only: 1.Updated vision (if changed) 2.New strategic questions 3.Revised success metrics. Max 200 words.`,
+      g0:`${deltaCtx}\n\nAs Gate Reviewer: Re-evaluate Gate 0. Has the Go/No-Go changed? List: 1.Updated verdict 2.Any criteria scores that changed 3.New risks. Max 150 words.`,
+      s1:`${deltaCtx}\n\nAs Market Researcher: What changed in Discovery? List only: 1.New market insights 2.Persona updates 3.New competitors or competitive shifts 4.Emerging opportunities. Max 250 words.`,
+      g1:`${deltaCtx}\n\nAs Gate Reviewer: Re-evaluate Gate 1 Scoping. What changed? List: 1.Scope changes IN/OUT 2.Updated resource estimate 3.Any new proceed conditions. Max 150 words.`,
+      s2:`${deltaCtx}\n\nAs Senior PM: What changed in Definition? List only: 1.New or revised user stories (3-5 max) 2.MoSCoW priority changes 3.New dependencies. Max 300 words.`,
+      s3:`${deltaCtx}\n\nAs UX Designer: What changed in Design? List only: 1.Updated design principles (if any) 2.Changed user flows 3.New UI components or screens. Max 250 words.`,
+      g2:`${deltaCtx}\n\nAs Gate Reviewer: Re-evaluate Gate 2. What changed in readiness? 1.Updated Go/No-Go 2.New technical risks 3.Sprint authorization changes. Max 150 words.`,
+      s4:`${deltaCtx}\n\nAs Staff Engineer: What changed in Build? List only: 1.Tech stack changes 2.New or changed API contracts (2-3 max) 3.Sprint plan deltas. Max 300 words.`,
+      s5:`${deltaCtx}\n\nAs QA Lead: What changed in QA? List only: 1.New test cases for new features (3-5 max) 2.Updated performance targets 3.New edge cases. Max 250 words.`,
+      g3:`${deltaCtx}\n\nAs Gate Reviewer: Re-evaluate Gate 3 Launch Readiness. 1.Updated Go/No-Go 2.New blocking issues 3.Changed green-light conditions. Max 150 words.`,
+      s6:`${deltaCtx}\n\nAs Launch Director: What changed in Launch? List only: 1.New launch checklist items 2.GTM strategy changes 3.Updated social copy. Max 250 words.`,
+      s7:`${deltaCtx}\n\nAs Demo Director: What changed in the Demo Script? List only: 1.New scenes for new features 2.Updated CTA 3.Changed distribution strategy. Max 250 words.`,
+      s8:`${deltaCtx}\n\nAs Growth Marketer: What changed in Marketing? List only: 1.New campaigns 2.Updated positioning 3.New growth hooks. Max 250 words.`,
+      g4:`${deltaCtx}\n\nAs Post-Launch Reviewer: Re-evaluate Gate 4. 1.Updated traction scorecard 2.What to double down vs previous 3.New fixes needed. Max 200 words.`,
+      s9:`${deltaCtx}\n\nAs CPO: What changed in Growth strategy? List only: 1.Updated North Star or OKRs 2.New A/B experiments 3.Retention changes. Max 250 words.`,
+      i0:`${deltaCtx}\n\nAs CPO: Plan Release ${rel+1}. Based on this release: 1.Top 3 learnings 2.Next release scope (5 bullet points max) 3.Release name and theme 4.Key success metric for next release. Max 300 words.`,
+    };
+    return DELTA[id]||`For product "${idea}", release ${rel}: list only the changes for stage "${id}" vs previous release. Be brief.`;
+  }
+
+  // ── INITIAL release (v1.0) — full detailed prompts ─────────────────────
+  const ctx='';
   if(S.compact){
     const C={
+      s0:`Senior PM. Idea:"${idea}". Output: 1.**Concept Note**(problem,solution,UVP,target,metric) 2.**Vision**(1 line) 3.**3 Strategic Questions** 4.**AI Prompt Tips**. Use markdown.`,
+      g0:`Stage-Gate reviewer. Idea:"${idea}". Gate 0: 1.**Go/No-Go**(verdict+score/10) 2.**Scorecard**(5 criteria,1-5) 3.**Top 3 Risks** 4.**Proceed Conditions**.`,
+      s1:`Market researcher. Idea:"${idea}". Output: 1.**Market**(size,trend,players) 2.**3 Personas** 3.**4-competitor table** 4.**5 Opportunities** 5.**3 Risks+mitigation**.`,
+      g1:`Gate reviewer. Idea:"${idea}". Gate 1 Scoping: 1.**Go/No-Go**(+score) 2.**Market Validation** 3.**IN/OUT scope** 4.**Resource estimate** 5.**Proceed conditions**.`,
+      s2:`Senior PM. Idea:"${idea}". Output: 1.**PRD** 2.**8 User Stories**(+AC) 3.**MoSCoW table** 4.**DoD checklist** 5.**Dependencies**.`,
+      s3:`UX Designer. Idea:"${idea}". Output: 1.**5 Design Principles** 2.**IA map** 3.**3 User Flows** 4.**UI Language** 5.**Accessibility** 6.**3 Wireframe descriptions**.`,
+      g2:`Gate reviewer. Idea:"${idea}". Gate 2 Dev: 1.**Go/No-Go**(+score) 2.**Definition completeness** 3.**3 Tech risks** 4.**Build readiness score** 5.**Sprint 1 authorization**.`,
+      s4:`Staff Engineer. Idea:"${idea}". Output: 1.**Tech Stack** 2.**Architecture** 3.**4-sprint plan** 4.**5 API endpoints** 5.**CI/CD strategy**.`,
+      s5:`QA Lead. Idea:"${idea}". Output: 1.**Test strategy** 2.**10 Test cases** 3.**8 Edge cases** 4.**Perf SLAs** 5.**OWASP top 5** 6.**P0-P3 matrix**.`,
+      g3:`Gate reviewer. Idea:"${idea}". Gate 3 Launch: 1.**Go/No-Go**(+score) 2.**Readiness scorecard** 3.**Blocking issues** 4.**3 launch risks** 5.**Green-light conditions**.`,
+      s6:`Launch Director. Idea:"${idea}". Output: 1.**20-item checklist** 2.**GTM strategy** 3.**Press kit** 4.**Social copy** 5.**3 email subjects** 6.**Launch day runbook**.`,
+      s7:`Demo Director. Idea:"${idea}". Output: 1.**Video brief**(90s) 2.**6-8 scenes** 3.**Opening hook** 4.**3 wow moments** 5.**CTA** 6.**Music** 7.**Distribution**.`,
+      s8:`Growth Marketer. Idea:"${idea}". Output: 1.**Positioning** 2.**8-week content calendar** 3.**Paid ads** 4.**Influencer brief** 5.**10 SEO keywords** 6.**5 Growth hooks**.`,
+      g4:`Post-launch reviewer. Idea:"${idea}". Gate 4: 1.**Traction scorecard** 2.**5 double-downs** 3.**5 fixes** 4.**Pivot/Persevere** 5.**Next release trigger**.`,
+      s9:`CPO. Idea:"${idea}". Output: 1.**North Star** 2.**OKRs**(3×3) 3.**Retention flywheel** 4.**8 A/B experiments** 5.**Feedback system** 6.**Scaling playbook**.`,
+      i0:`CPO planning next release. Idea:"${idea}". Output: 1.**Retro summary** 2.**Next scope** 3.**Updated MoSCoW** 4.**Delta architecture** 5.**5 new stories** 6.**Success metrics** 7.**Release name+theme**.`,
+    };
+    return C[id]||`Describe stage "${id}" for: "${idea}"`;
+  }
+  const F={
+    s0:`You are a Senior Product Strategist. Idea:"${idea}".\n1.**Optimized Concept Note** – problem,solution,UVP,target,metric\n2.**Vision Statement** – one sentence\n3.**3 Strategic Questions**\n4.**AI Prompt Optimization Tips**\nUse markdown.`,
+    g0:`You are a Stage-Gate Board. Idea:"${idea}".\nGate 0 Idea Screen:\n1.**Go/No-Go** verdict+score/10\n2.**Criteria Scorecard** – 5 criteria scored 1-5\n3.**Top 3 Risks**\n4.**Conditional Approval**`,
+    s1:`You are a Market Researcher. Idea:"${idea}".\n1.**Market Landscape** – size,trend,players\n2.**3 Personas** – name,role,pains,goals\n3.**Competitive Analysis** – 4 competitors table\n4.**5 Opportunities**\n5.**3 Risks+mitigation**`,
+    g1:`You are a Stage-Gate Board. Idea:"${idea}".\nGate 1 Scoping:\n1.**Go/No-Go**+score\n2.**Market Validation Score**\n3.**Scope IN vs OUT**\n4.**Resource Estimate**\n5.**Proceed Conditions**`,
+    s2:`You are a Senior PM. Idea:"${idea}".\n1.**PRD** – goals,scope,metrics\n2.**8 User Stories**+AC\n3.**MoSCoW Table**\n4.**Definition of Done**\n5.**Dependencies**`,
+    s3:`You are a UX Designer. Idea:"${idea}".\n1.**5 Design Principles**\n2.**IA map**\n3.**3 User Flows**\n4.**UI Language** – palette,typography\n5.**Accessibility**\n6.**3 Wireframe Descriptions**`,
+    g2:`You are a Stage-Gate Board. Idea:"${idea}".\nGate 2 Development:\n1.**Go/No-Go**+score\n2.**Definition Completeness**\n3.**3 Technical Risks**\n4.**Build Readiness Score**\n5.**Sprint 1 Authorization**`,
+    s4:`You are a Staff Engineer. Idea:"${idea}".\n1.**Tech Stack**+rationale\n2.**Architecture**\n3.**4-Sprint Plan**\n4.**5 API Contracts**\n5.**CI/CD Strategy**`,
+    s5:`You are a QA Lead. Idea:"${idea}".\n1.**Test Strategy**\n2.**10 Test Cases**\n3.**8 Edge Cases**\n4.**Performance SLAs**\n5.**OWASP Top 5**\n6.**P0-P3 Severity Matrix**`,
+    g3:`You are a Stage-Gate Board. Idea:"${idea}".\nGate 3 Launch Readiness:\n1.**Go/No-Go**+score\n2.**Readiness Scorecard**\n3.**Blocking Issues**\n4.**3 Launch Risks**\n5.**Green-Light Conditions**`,
+    s6:`You are a Launch Director. Idea:"${idea}".\n1.**20-item Launch Checklist**\n2.**GTM Strategy**\n3.**Press Kit**\n4.**Social Copy** – LinkedIn,Twitter,WhatsApp\n5.**3 Email Subject Lines**\n6.**Launch Day Runbook**`,
+    s7:`You are a Demo Director. Idea:"${idea}".\n1.**Video Brief** – 90sec\n2.**6-8 Scene Script** [Scene|Time|Visual|Narration|On-screen]\n3.**Opening Hook**\n4.**3 Wow Moments**\n5.**CTA**\n6.**Music**\n7.**Distribution**`,
+    s8:`You are a Growth Marketer. Idea:"${idea}".\n1.**Positioning**\n2.**8-week Content Calendar**\n3.**Paid Ads** – Google/Meta/LinkedIn\n4.**Influencer Brief**\n5.**10 SEO Keywords**\n6.**Community Tactics**\n7.**5 Growth Hooks**`,
+    g4:`You are a Post-Launch Analyst. Idea:"${idea}".\nGate 4 Post-Launch:\n1.**Traction Scorecard**\n2.**5 Double-Downs**\n3.**5 Fixes**\n4.**Pivot vs Persevere**\n5.**Next Release Trigger**`,
+    s9:`You are a CPO. Idea:"${idea}".\n1.**North Star Metric**\n2.**OKRs** 3×3\n3.**Retention Flywheel**\n4.**8 A/B Experiments**\n5.**Feedback System**\n6.**Scaling Playbook**`,
+    i0:`You are a CPO planning next release. Idea:"${idea}".\n1.**Retrospective Summary**\n2.**Next Release Scope**\n3.**Updated MoSCoW**\n4.**Delta Architecture**\n5.**5 Updated User Stories**\n6.**Success Metrics**\n7.**Release Name & Theme**`,
+  };
+  return F[id]||`Describe stage "${id}" for: "${idea}"`;
+}
       s0:`Senior PM. Idea:"${idea}".${ctx} Output: 1.**Concept Note**(problem,solution,UVP,target,metric) 2.**Vision**(1 line) 3.**3 Strategic Questions** 4.**AI Prompt Tips**. Use markdown.`,
       g0:`Stage-Gate reviewer. Idea:"${idea}".${ctx} Gate 0: 1.**Go/No-Go**(verdict+score/10) 2.**Scorecard**(5 criteria,1-5) 3.**Top 3 Risks** 4.**Proceed Conditions**.`,
       s1:`Market researcher. Idea:"${idea}".${ctx} Output: 1.**Market**(size,trend,players) 2.**3 Personas** 3.**4-competitor table** 4.**5 Opportunities** 5.**3 Risks+mitigation**.`,
@@ -642,8 +706,12 @@ async function runStage(id){
   r.outputs[id]='';r.tok[id]={};
 
   const isGate=item.type==='gate';
-  const maxTok=S.maxtok&&isGate?900:1800;
-  const ctx=S.trim&&r.prev?r.prev.substring(0,CTX_MAX):r.prev;
+  const isIteration=R.indexOf(r)+1>1;
+  // Iteration stages are delta-only so need far fewer tokens
+  const maxTok=isIteration ? (isGate?400:600) : (S.maxtok&&isGate?900:1800);
+  // For iterations pass full prev context (it's their whole uniqueness signal)
+  // For v1.0 trim it (there is none anyway)
+  const ctx=isIteration ? (r.prev||'') : (S.trim&&r.prev?r.prev.substring(0,CTX_MAX):r.prev);
   const body=buildPrompt(id,idea,R.indexOf(r)+1,ctx);
   if(!body){inner.innerHTML=`<p style="color:#f87171">❌ No prompt found for stage "${id}"</p>`;card.classList.remove('rn');document.getElementById('ic-'+id).innerHTML=item.icon;document.getElementById('br-'+id).style.display='none';document.getElementById('sh-'+id).style.display='none';paint();return;}
   let inTok=0,outTok=0;
@@ -812,9 +880,14 @@ async function runAll(){
 function newRelease(){
   if(running)return;
   const r=cr();
+  if(!r.outputs['i0']||r.outputs['i0'].trim().length<20){
+    alert('Please complete the full run including the Iterate stage (Stage 16) before starting a new release.\n\nThe Iterate stage output becomes the carry-forward context that makes v1.1 genuinely different from v1.0.');
+    return;
+  }
   const labels=['v1.0','v1.1','v1.2','v2.0','v2.1','v3.0'];
   const lbl=(R.length<labels.length?labels[R.length]:`v${R.length}.0`)+' · Iteration';
-  const prev=r.outputs['i0']||Object.values(r.outputs).slice(-2).join('\n').substring(0,600);
+  // Pass the FULL iterate output — this is the unique context for each release
+  const prev=r.outputs['i0'];
   R.push({label:lbl,outputs:{},tok:{},unlocked:{s0:true},prev,idea:r.idea||''});
   ci=R.length-1;
   document.getElementById('ideaInput').value=cr().idea||'';
