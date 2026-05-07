@@ -225,11 +225,16 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
   <div><strong>Stage-Gate® Model</strong> — A <strong>Stage</strong> is where work happens. A <strong>Gate</strong> is the go/no-go checkpoint. An <strong>Iterate</strong> phase plans the next release delta. Each stage pauses for 10 seconds (or Enter) so you can read the output before AI proceeds.</div>
 </div>
 
-<!-- RELEASE BAR -->
+<!-- RELEASE BAR with iteration explanation -->
 <div class="rbar">
   <span class="rl">Release Cycle</span>
   <div class="rtabs" id="rtabs"></div>
-  <button class="bnr" id="btnNR" onclick="newRelease()" disabled>＋ New Release</button>
+  <button class="bnr" id="btnNR" onclick="newRelease()" disabled title="Start next iteration — AI carries forward learnings from Iterate stage and generates only the delta for this release">＋ New Release</button>
+</div>
+
+<!-- Iteration explanation (shows when >1 release exists) -->
+<div id="iterInfo" style="display:none;background:rgba(129,140,248,.06);border:1px solid rgba(129,140,248,.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.74rem;color:#94a3b8;line-height:1.6">
+  <strong style="color:#818cf8">What is v1.1 / v1.2?</strong> — Each iteration runs all 16 stages again but AI only generates the <strong style="color:#e2e8f0">delta</strong> — what's new, improved, or fixed compared to the previous release. The Iterate stage output from v1.0 becomes the carry-forward context. Each cycle has its own PDF. Zero tokens consumed when loaded from history.
 </div>
 
 <!-- PROGRESS -->
@@ -272,6 +277,23 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
 
 <!-- PIPELINE -->
 <div class="pipeline" id="pipeline"></div>
+
+<!-- RUN HISTORY PANEL -->
+<div style="margin-top:20px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:.65rem;letter-spacing:2px;color:#818cf8;text-transform:uppercase;font-weight:600">📚 Run History</span>
+      <span style="font-size:.65rem;color:#475569">— load any past run with 0 tokens</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('historyBody').style.display=document.getElementById('historyBody').style.display==='none'?'block':'none'" style="background:none;border:none;color:#818cf8;cursor:pointer;font-size:.72rem;text-decoration:underline;padding:0">show/hide</button>
+      <button onclick="clearHistory()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:.72rem;text-decoration:underline;padding:0">clear all</button>
+    </div>
+  </div>
+  <div id="historyBody">
+    <div id="historyPanel" style="min-height:40px"></div>
+  </div>
+</div>
 
 <div class="legend">
   <div><span style="color:#38bdf8">■</span> <strong style="color:#38bdf8">Stage</strong> — AI generates artifact</div>
@@ -514,7 +536,9 @@ function paint(){
   if(r.prev){document.getElementById('pctxEl').textContent=r.prev.substring(0,CTX_MAX)+(r.prev.length>CTX_MAX?'…':'');pc.style.display='block';}
   else pc.style.display='none';
   document.getElementById('btnPDF').style.display=done>=1?'inline-block':'none';
-  document.getElementById('btnPDF').textContent=done===tot?'📄 Export Full PDF Report':'📄 Export PDF ('+done+'/'+tot+' stages)';
+  document.getElementById('btnPDF').textContent=done===tot
+    ? `📄 Download PDF — ${r.label}`
+    : `📄 Download PDF — ${r.label} (${done}/${tot} stages)`;
   document.getElementById('btnNR').disabled=done<5||running;
   // Token zero explanation
   const allCached=done>0&&Object.values(r.tok).filter(t=>t&&t.cached).length===done;
@@ -537,9 +561,24 @@ function paint(){
     if(isDone) document.getElementById('oi-'+p.id).innerHTML=renderMD(r.outputs[p.id]);
     if(tk.in||tk.out){const tb=document.getElementById('bt-'+p.id);tb.textContent=fmt((tk.in||0)+(tk.out||0))+' tok';tb.style.display='inline';}
   });
+  // Show iteration explanation when more than 1 release cycle exists
+  const iterInfo=document.getElementById('iterInfo');
+  if(iterInfo) iterInfo.style.display=R.length>1?'block':'none';
+
+  // Release tabs — each release gets a 📄 PDF button when it has content
   document.getElementById('rtabs').innerHTML=R.map((rel,i)=>{
-    const all=Object.keys(rel.outputs).length===PL.length;
-    return`<button class="rtab ${i===ci?'active':''} ${all&&i!==ci?'done-tab':''}" onclick="switchR(${i})">${rel.label}</button>`;
+    const relDone=Object.values(rel.outputs).filter(v=>v&&v.trim().length>20).length;
+    const isActive=i===ci;
+    const isComplete=relDone===PL.length;
+    const isPartial=relDone>0&&relDone<PL.length;
+    const tabLabel=rel.label+(isComplete?' ✓':isPartial?' ('+relDone+'/'+PL.length+')':'');
+    return`<span style="display:inline-flex;align-items:center;gap:3px;flex-shrink:0">
+      <button class="rtab ${isActive?'active':''} ${isComplete&&!isActive?'done-tab':''}"
+        onclick="switchR(${i})" title="${rel.idea?rel.idea.substring(0,80):''}">${tabLabel}</button>
+      ${relDone>0?`<button onclick="exportReleasePDF(${i})"
+        title="Download PDF for ${rel.label}"
+        style="padding:3px 8px;background:rgba(129,140,248,.12);border:1px solid rgba(129,140,248,.25);border-radius:6px;color:#a78bfa;font-size:.65rem;font-weight:600;cursor:pointer">📄</button>`:''}
+    </span>`;
   }).join('');
 }
 
@@ -744,7 +783,15 @@ async function runAll(){
     paint();await runStage(PL[i].id);await new Promise(rs=>setTimeout(rs,200));
   }
   btn.innerHTML='🤖 Run Full Agentic Mode';btn.disabled=false;
-  document.getElementById('ideaInput').disabled=false;running=false;paint();
+  document.getElementById('ideaInput').disabled=false;running=false;
+  // Auto-collapse all stages after run — user can expand individually or use expand all
+  collapseAll();
+  // Save to history
+  saveHistory(cr());
+  paint();
+  // Scroll back to top so user sees PDF button and progress
+  document.querySelector('.wrap').scrollIntoView({behavior:'smooth',block:'start'});
+  setTimeout(()=>renderHistory(),300);
 }
 
 function newRelease(){
@@ -760,7 +807,132 @@ function newRelease(){
   paint();document.querySelector('.icard').scrollIntoView({behavior:'smooth'});
 }
 
-// ── PDF Export ────────────────────────────────────────────────────────────
+// ── Run History ───────────────────────────────────────────────────────────
+const HIST_KEY='agentpm3_runhistory';
+
+function saveHistory(r){
+  const done=Object.values(r.outputs).filter(v=>v&&v.trim().length>20).length;
+  if(done<1)return; // don't save empty runs
+  try{
+    const hist=getHistory();
+    // Remove duplicate for same label+idea
+    const filtered=hist.filter(h=>!(h.label===r.label&&h.idea===r.idea));
+    const entry={
+      id:Date.now(),
+      label:r.label,
+      idea:r.idea||'',
+      date:new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}),
+      stagesCount:done,
+      outputs:r.outputs,
+      tok:r.tok
+    };
+    filtered.unshift(entry);
+    // Keep max 15 history entries
+    localStorage.setItem(HIST_KEY,JSON.stringify(filtered.slice(0,15)));
+  }catch(e){console.warn('History save failed:',e);}
+}
+
+function getHistory(){
+  try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch{return [];}
+}
+
+function clearHistory(){
+  localStorage.removeItem(HIST_KEY);
+  renderHistory();
+}
+
+function loadFromHistory(id){
+  const hist=getHistory();
+  const entry=hist.find(h=>h.id===id);
+  if(!entry)return;
+  // Create a new release slot or find existing one with same label
+  let slot=R.find(r=>r.label===entry.label&&r.idea===entry.idea);
+  if(!slot){
+    slot={label:entry.label,outputs:{},tok:{},unlocked:{},prev:'',idea:entry.idea};
+    // unlock all since we're loading complete data
+    PL.forEach(p=>{slot.unlocked[p.id]=true;});
+    R.push(slot);
+    ci=R.length-1;
+  } else {
+    ci=R.indexOf(slot);
+  }
+  // Populate outputs and tok from history (zero new tokens)
+  slot.outputs={...entry.outputs};
+  slot.tok={...entry.tok};
+  slot.idea=entry.idea;
+  // Mark all as "loaded from history" (essentially cached)
+  Object.keys(slot.tok).forEach(k=>{if(slot.tok[k])slot.tok[k].cached=true;});
+  document.getElementById('ideaInput').value=entry.idea;
+  PL.forEach(p=>{
+    document.getElementById('go-'+p.id).classList.remove('open');
+    document.getElementById('oi-'+p.id).innerHTML='';
+    document.getElementById('br-'+p.id).style.display='none';
+    document.getElementById('sh-'+p.id).style.display='none';
+    document.getElementById('ic-'+p.id).innerHTML=PL.find(x=>x.id===p.id).icon;
+  });
+  paint();
+  document.querySelector('.icard').scrollIntoView({behavior:'smooth'});
+}
+
+function deleteHistory(id){
+  const hist=getHistory().filter(h=>h.id!==id);
+  localStorage.setItem(HIST_KEY,JSON.stringify(hist));
+  renderHistory();
+}
+
+function renderHistory(){
+  const panel=document.getElementById('historyPanel');
+  if(!panel)return;
+  const hist=getHistory();
+  if(hist.length===0){
+    panel.innerHTML=`<p style="color:#475569;font-size:.78rem;text-align:center;padding:12px">No runs saved yet. Complete a full run to save it here.</p>`;
+    return;
+  }
+  panel.innerHTML=hist.map(h=>{
+    const stageTypes=h.stagesCount;
+    const isFullRun=stageTypes===16;
+    return`<div style="background:rgba(10,20,40,.7);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+            <span style="font-family:'Syne',sans-serif;font-size:.8rem;font-weight:700;color:${isFullRun?'#f0c060':'#38bdf8'}">${h.label}</span>
+            <span style="font-size:.6rem;background:rgba(${isFullRun?'240,192,96':'56,189,248'},.1);color:${isFullRun?'#f0c060':'#38bdf8'};border:1px solid rgba(${isFullRun?'240,192,96':'56,189,248'},.2);border-radius:100px;padding:1px 6px">${h.stagesCount}/16 stages</span>
+            <span style="font-size:.6rem;color:#475569">${h.date}</span>
+          </div>
+          <p style="font-size:.75rem;color:#94a3b8;line-height:1.4;margin:0">${h.idea?h.idea.substring(0,80)+(h.idea.length>80?'…':''):'—'}</p>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+          <button onclick="loadFromHistory(${h.id})" style="padding:5px 12px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:7px;color:#38bdf8;font-size:.7rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">↩ Load</button>
+          <button onclick="exportHistoryPDF(${h.id})" style="padding:5px 10px;background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.25);border-radius:7px;color:#818cf8;font-size:.7rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">📄 PDF</button>
+          <button onclick="deleteHistory(${h.id})" style="padding:5px 8px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:7px;color:#f87171;font-size:.7rem;cursor:pointer">✕</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function exportHistoryPDF(id){
+  const hist=getHistory();
+  const entry=hist.find(h=>h.id===id);
+  if(!entry){alert('History entry not found.');return;}
+  // Temporarily load into a fake release object for PDF export
+  const origCi=ci;
+  const fakeR={label:entry.label,outputs:entry.outputs,tok:entry.tok,idea:entry.idea,prev:''};
+  R.push(fakeR);
+  ci=R.length-1;
+  await exportPDF();
+  R.pop();
+  ci=origCi;
+}
+async function exportReleasePDF(releaseIdx){
+  // Export PDF for any release by index — doesn't change the active view
+  const prevCi=ci;
+  ci=releaseIdx;
+  await exportPDF();
+  ci=prevCi;
+  paint();
+}
+
 async function exportPDF(){
   const r=cr();
   // Auto-purge any poisoned (empty) cache entries before export
@@ -1102,7 +1274,7 @@ function es(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
   const lnk2=document.createElement('link');lnk2.rel='icon';lnk2.type='image/png';lnk2.href=url;document.head.appendChild(lnk2);
 })();
 
-buildPL();paint();
+buildPL();paint();renderHistory();
 </script>
 </body>
 </html>
