@@ -77,7 +77,7 @@ textarea:disabled,input:disabled{opacity:.4;cursor:not-allowed}
 .brow{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .bagent{flex:1;min-width:160px;padding:11px 16px;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;border-radius:10px;color:#fff;font-size:.83rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;font-family:'Syne',sans-serif;transition:all .2s}
 .bagent:disabled{background:rgba(56,189,248,.07);border:1px solid rgba(56,189,248,.15);cursor:not-allowed;color:#475569}
-.bpdf{padding:11px 14px;background:linear-gradient(135deg,#4c1d95,#5b21b6);border:1px solid rgba(167,139,250,.3);border-radius:10px;color:#a78bfa;font-size:.78rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif;display:none}
+.bpdf{padding:11px 14px;background:linear-gradient(135deg,#4c1d95,#5b21b6);border:1px solid rgba(167,139,250,.3);border-radius:10px;color:#a78bfa;font-size:.78rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif;display:none;white-space:nowrap}
 .bcache{padding:11px 14px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px;color:#f87171;font-size:.78rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif}
 .hint{color:#475569;font-size:.67rem;margin-top:5px}
 
@@ -260,7 +260,10 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
     <button class="bpdf"   id="btnPDF"   onclick="exportPDF()">📄 Export PDF Report</button>
     <button class="bcache"              onclick="clearCache()">🗑 Clear Cache</button>
   </div>
-  <p class="hint">Run stages individually · ⏸ pause toggle above · Green = cached (0 tokens) · PDF export at end of cycle</p>
+  <p class="hint">Run stages individually · ⏸ pause toggle above · Green = cached (0 tokens = full savings!) ·
+    <button onclick="expandAll()" style="background:none;border:none;color:#38bdf8;cursor:pointer;font-size:.67rem;text-decoration:underline;padding:0">expand all ▼</button> /
+    <button onclick="collapseAll()" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:.67rem;text-decoration:underline;padding:0">collapse all ▲</button>
+  </p>
 </div>
 
 <!-- PIPELINE -->
@@ -506,8 +509,12 @@ function paint(){
   const pc=document.getElementById('pctx');
   if(r.prev){document.getElementById('pctxEl').textContent=r.prev.substring(0,CTX_MAX)+(r.prev.length>CTX_MAX?'…':'');pc.style.display='block';}
   else pc.style.display='none';
-  document.getElementById('btnPDF').style.display=done===tot?'inline-block':'none';
+  document.getElementById('btnPDF').style.display=done>=1?'inline-block':'none';
+  document.getElementById('btnPDF').textContent=done===tot?'📄 Export Full PDF Report':'📄 Export PDF ('+done+'/'+tot+' stages)';
   document.getElementById('btnNR').disabled=done<5||running;
+  // Token zero explanation
+  const allCached=done>0&&Object.values(r.tok).filter(t=>t&&t.cached).length===done;
+  document.getElementById('tdHits').textContent='cache hits: '+T.hits+(allCached?' — all from cache (0 new tokens, full savings!)':' · est. strategy savings');
   PL.forEach(p=>{
     const hasContent=!!(r.outputs[p.id]&&r.outputs[p.id].trim().length>20);
     const isDone=hasContent;
@@ -557,6 +564,8 @@ async function runStage(id){
     if(idx<PL.length-1)r.unlocked[PL[idx+1].id]=true;
     paint();
     document.getElementById('go-'+id).classList.add('open');
+    document.getElementById('ga-'+id).textContent='▲';
+    setTimeout(()=>{document.getElementById('c-'+id).scrollIntoView({behavior:'smooth',block:'start'});},150);
     const item=PL.find(p=>p.id===id);
     await showPause(item,r.outputs[id]);
     return;
@@ -631,6 +640,16 @@ async function runStage(id){
   document.getElementById('sh-'+id).style.display='none';
   paint();
 
+  // ── Auto-expand output so user can see what was generated ─────────────
+  if(r.outputs[id]&&r.outputs[id].trim().length>20){
+    document.getElementById('go-'+id).classList.add('open');
+    document.getElementById('ga-'+id).textContent='▲';
+    // Smooth scroll to this stage card
+    setTimeout(()=>{
+      document.getElementById('c-'+id).scrollIntoView({behavior:'smooth',block:'start'});
+    },150);
+  }
+
   // Pause for review
   await showPause(item,r.outputs[id]||'');
 }
@@ -638,6 +657,21 @@ async function runStage(id){
 async function go(id){if(!running)await runStage(id);}
 function toggleKey(){const f=document.getElementById('apiKey');f.type=f.type==='password'?'text':'password';}
 
+function expandAll(){
+  const r=cr();
+  PL.forEach(p=>{
+    if(r.outputs[p.id]&&r.outputs[p.id].trim().length>20){
+      document.getElementById('go-'+p.id).classList.add('open');
+      document.getElementById('ga-'+p.id).textContent='▲';
+    }
+  });
+}
+function collapseAll(){
+  PL.forEach(p=>{
+    document.getElementById('go-'+p.id).classList.remove('open');
+    document.getElementById('ga-'+p.id).textContent='▼';
+  });
+}
 async function runAll(){
   const idea=document.getElementById('ideaInput').value.trim();
   const key=document.getElementById('apiKey').value.trim();
