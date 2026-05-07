@@ -350,23 +350,26 @@ function sv(id,v){const el=document.getElementById(id);if(el.textContent!==Strin
 function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':n;}
 
 // ── Cache ─────────────────────────────────────────────────────────────────
-function ck(id,idea){return CPFX+id+'_'+btoa(encodeURIComponent(idea.trim().toLowerCase().substring(0,80))).substring(0,22);}
-function cget(id,idea){
+// Key includes release label so v1.0, v1.1, v1.2 each get their own cache entries
+function ck(id,idea,releaseLabel){
+  const ideaHash=btoa(encodeURIComponent(idea.trim().toLowerCase().substring(0,80))).substring(0,18);
+  const relHash=btoa(encodeURIComponent((releaseLabel||'v1').replace(/\s/g,''))).substring(0,8);
+  return CPFX+id+'_'+ideaHash+'_'+relHash;
+}
+function cget(id,idea,releaseLabel){
   if(!S.cache)return null;
   try{
-    const v=localStorage.getItem(ck(id,idea));
+    const v=localStorage.getItem(ck(id,idea,releaseLabel));
     if(!v)return null;
     const d=JSON.parse(v);
-    // Reject cached entries with empty or very short text (poisoned cache)
     if(!d.text||d.text.trim().length<20)return null;
     return d;
   }catch{return null;}
 }
-function cset(id,idea,d){
+function cset(id,idea,releaseLabel,d){
   if(!S.cache)return;
-  // Only cache if there is real content
   if(!d.text||d.text.trim().length<20)return;
-  try{localStorage.setItem(ck(id,idea),JSON.stringify(d));}catch{}
+  try{localStorage.setItem(ck(id,idea,releaseLabel),JSON.stringify(d));}catch{}
 }
 function clearCache(){
   // Clear localStorage
@@ -608,9 +611,10 @@ async function runStage(id){
   if(!idea){alert('Enter your product idea first!');return;}
   if(!key){alert('Enter your Anthropic API key first!');return;}
   if(!r.idea)r.idea=idea;
+  const releaseLabel=r.label||'v1.0';
 
-  // Cache hit
-  const cached=cget(id,idea);
+  // Cache hit — keyed by idea + release label so each release is independent
+  const cached=cget(id,idea,releaseLabel);
   if(cached){
     r.outputs[id]=cached.text;r.tok[id]={in:cached.i,out:cached.o,cached:true};
     addSaved(cached.i,cached.o);
@@ -683,7 +687,7 @@ async function runStage(id){
     addUsed(inTok,outTok);
     if(S.compact){addSaved(Math.round(inTok*0.53),0,'compact');}
     if(S.maxtok&&isGate){addSaved(0,Math.round(outTok*0.9),'maxtok');}
-    cset(id,idea,{text:r.outputs[id],i:inTok,o:outTok});
+    cset(id,idea,releaseLabel,{text:r.outputs[id],i:inTok,o:outTok});
     const idx=PL.findIndex(p=>p.id===id);
     if(idx<PL.length-1)r.unlocked[PL[idx+1].id]=true;
     if(id==='i0')r.iterateSummary=r.outputs['i0'];
@@ -972,10 +976,11 @@ async function exportReleasePDF(releaseIdx){
 
 async function exportPDF(){
   const r=cr();
-  // Auto-purge any poisoned (empty) cache entries before export
+  // Auto-purge any poisoned (empty) cache entries for this specific release
   const idea=document.getElementById('ideaInput').value.trim();
+  const releaseLabel=r.label||'v1.0';
   PL.forEach(p=>{
-    const k=ck(p.id,idea);
+    const k=ck(p.id,idea,releaseLabel);
     try{
       const v=localStorage.getItem(k);
       if(v){const d=JSON.parse(v);if(!d.text||d.text.trim().length<20)localStorage.removeItem(k);}
@@ -1048,12 +1053,25 @@ async function exportPDF(){
   doc.setFillColor(5,14,35);doc.rect(0,31,PW,62,'F');
   doc.setFillColor(...DARK);doc.rect(0,31,4,62,'F');
   doc.setFillColor(...GOLD);doc.rect(0,31,4,20,'F');
+  const relNum=R.indexOf(r)+1;
+  const isIteration=relNum>1;
   doc.setFont('helvetica','bold');doc.setFontSize(36);
   doc.setTextColor(...GOLD);doc.text('AgentPM',ML+8,58);
   doc.setFont('helvetica','bold');doc.setFontSize(14);
   doc.setTextColor(...CYAN);doc.text('AI Product CI/CD Pipeline',ML+8,72);
-  doc.setFont('helvetica','normal');doc.setFontSize(8.5);
-  doc.setTextColor(120,140,170);doc.text('Stage-Gate Product Lifecycle · Autonomous AI Execution',ML+8,84);
+  // Release badge — large and clear
+  doc.setFillColor(isIteration?30:5,isIteration?15:20,isIteration?60:50);
+  doc.roundedRect(ML+8,76,isIteration?60:48,10,2,2,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.setTextColor(isIteration?...PURPLE:...GOLD);
+  doc.text(r.label,ML+12,83);
+  if(isIteration){
+    doc.setFont('helvetica','italic');doc.setFontSize(7.5);doc.setTextColor(150,140,200);
+    doc.text('Delta iteration — changes from previous release only',ML+8,90);
+  } else {
+    doc.setFont('helvetica','normal');doc.setFontSize(8.5);
+    doc.setTextColor(120,140,170);doc.text('Stage-Gate Product Lifecycle · Autonomous AI Execution',ML+8,90);
+  }
 
   // ── PRODUCT IDEA — the hero section ────────────────────────────────────
   // Outer glow box
