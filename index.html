@@ -7,8 +7,12 @@
 <meta name="theme-color" content="#020817"/>
 <meta name="description" content="AI Product CI/CD Pipeline — Simulate your entire product lifecycle, stage by stage, gate by gate, fully autonomous."/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-title" content="AgentPM CI/CD"/>
-<!-- PWA Icon injected via canvas -->
+<meta name="apple-mobile-web-app-title" content="AgentPM"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta property="og:title" content="AgentPM · AI Product CI/CD Pipeline"/>
+<meta property="og:description" content="Simulate your entire product lifecycle — stage by stage, gate by gate, fully autonomous. Powered by Claude (Anthropic)."/>
+<meta property="og:type" content="website"/>
+<!-- PWA Icon injected via canvas at runtime -->
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
@@ -281,14 +285,17 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
 <!-- RUN HISTORY PANEL -->
 <div style="margin-top:20px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-size:.65rem;letter-spacing:2px;color:#818cf8;text-transform:uppercase;font-weight:600">📚 Run History</span>
-      <span style="font-size:.65rem;color:#475569">— load any past run with 0 tokens</span>
+      <span id="historyHeader" style="font-size:.65rem;color:#475569"></span>
     </div>
     <div style="display:flex;gap:8px">
-      <button onclick="document.getElementById('historyBody').style.display=document.getElementById('historyBody').style.display==='none'?'block':'none'" style="background:none;border:none;color:#818cf8;cursor:pointer;font-size:.72rem;text-decoration:underline;padding:0">show/hide</button>
+      <button onclick="toggleHistory()" style="background:none;border:none;color:#818cf8;cursor:pointer;font-size:.72rem;text-decoration:underline;padding:0" id="btnToggleHistory">hide ▲</button>
       <button onclick="clearHistory()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:.72rem;text-decoration:underline;padding:0">clear all</button>
     </div>
+  </div>
+  <div style="background:rgba(34,197,94,.05);border:1px solid rgba(34,197,94,.15);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.7rem;color:#64748b;line-height:1.5">
+    ✅ <strong style="color:#22c55e">Hosted on GitHub Pages</strong> — your history and cache are permanently saved to this URL's localStorage. Persists across sessions, devices that visit this URL, and browser restarts. <strong style="color:#94a3b8">0 tokens</strong> to reload any past run.
   </div>
   <div id="historyBody">
     <div id="historyPanel" style="min-height:40px"></div>
@@ -303,6 +310,10 @@ button:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
   <div><span style="color:#a78bfa">■</span> <strong style="color:#a78bfa">PDF</strong> — formatted export with headers, footers, page numbers</div>
 </div>
 <p class="footer">AgentPM · AI Product CI/CD Pipeline · Powered by Claude · Anthropic API · Stage-Gate® Model · Brainovision Innovation Lab</p>
+<p style="text-align:center;font-size:.62rem;color:#1e3a5f;margin-top:6px">
+  📱 <strong style="color:#334155">Add to Home Screen</strong> — open in Safari/Chrome → Share → Add to Home Screen for PWA experience &nbsp;·&nbsp;
+  🌐 <strong style="color:#334155">GitHub Pages</strong>: history + cache persist permanently at this URL
+</p>
 </div><!-- /wrap -->
 
 <script>
@@ -874,37 +885,63 @@ function loadFromHistory(id){
   document.querySelector('.icard').scrollIntoView({behavior:'smooth'});
 }
 
+function toggleHistory(){
+  const body=document.getElementById('historyBody');
+  const btn=document.getElementById('btnToggleHistory');
+  const hidden=body.style.display==='none';
+  body.style.display=hidden?'block':'none';
+  btn.textContent=hidden?'hide ▲':'show ▼';
+}
+
 function deleteHistory(id){
   const hist=getHistory().filter(h=>h.id!==id);
   localStorage.setItem(HIST_KEY,JSON.stringify(hist));
   renderHistory();
 }
 
+function getStorageSize(){
+  try{
+    const raw=localStorage.getItem(HIST_KEY)||'[]';
+    const kb=Math.round(raw.length/1024*10)/10;
+    return kb+'KB';
+  }catch{return '?';}
+}
+
 function renderHistory(){
   const panel=document.getElementById('historyPanel');
   if(!panel)return;
   const hist=getHistory();
+  const hdr=document.getElementById('historyHeader');
+  if(hdr) hdr.textContent=hist.length>0?`${hist.length} run${hist.length>1?'s':''} saved · ${getStorageSize()} · persists after close/reopen`:'';
+
   if(hist.length===0){
-    panel.innerHTML=`<p style="color:#475569;font-size:.78rem;text-align:center;padding:12px">No runs saved yet. Complete a full run to save it here.</p>`;
+    panel.innerHTML=`
+      <div style="text-align:center;padding:16px;background:rgba(255,255,255,.02);border-radius:10px;border:1px dashed rgba(255,255,255,.08)">
+        <div style="font-size:1.5rem;margin-bottom:6px">📭</div>
+        <p style="color:#475569;font-size:.78rem;margin-bottom:4px">No runs saved yet.</p>
+        <p style="color:#334155;font-size:.7rem">Complete a run — it saves automatically and persists here even after you close the browser.</p>
+      </div>`;
     return;
   }
   panel.innerHTML=hist.map(h=>{
-    const stageTypes=h.stagesCount;
-    const isFullRun=stageTypes===16;
-    return`<div style="background:rgba(10,20,40,.7);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;margin-bottom:8px">
+    const isFullRun=h.stagesCount===16;
+    const tokUsed=Object.values(h.tok||{}).reduce((s,t)=>s+(t?.in||0)+(t?.out||0),0);
+    const cachedCount=Object.values(h.tok||{}).filter(t=>t?.cached).length;
+    return`<div style="background:rgba(10,20,40,.8);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;margin-bottom:8px;transition:border .2s" onmouseover="this.style.borderColor='rgba(56,189,248,.25)'" onmouseout="this.style.borderColor='rgba(255,255,255,.07)'">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-            <span style="font-family:'Syne',sans-serif;font-size:.8rem;font-weight:700;color:${isFullRun?'#f0c060':'#38bdf8'}">${h.label}</span>
-            <span style="font-size:.6rem;background:rgba(${isFullRun?'240,192,96':'56,189,248'},.1);color:${isFullRun?'#f0c060':'#38bdf8'};border:1px solid rgba(${isFullRun?'240,192,96':'56,189,248'},.2);border-radius:100px;padding:1px 6px">${h.stagesCount}/16 stages</span>
-            <span style="font-size:.6rem;color:#475569">${h.date}</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px">
+            <span style="font-family:'Syne',sans-serif;font-size:.82rem;font-weight:700;color:${isFullRun?'#f0c060':'#38bdf8'}">${h.label}</span>
+            <span style="font-size:.58rem;background:rgba(${isFullRun?'240,192,96':'56,189,248'},.1);color:${isFullRun?'#f0c060':'#38bdf8'};border:1px solid rgba(${isFullRun?'240,192,96':'56,189,248'},.2);border-radius:100px;padding:1px 6px">${h.stagesCount}/16 stages${isFullRun?' ✓':''}</span>
+            ${tokUsed>0?`<span style="font-size:.58rem;color:#818cf8;background:rgba(129,140,248,.08);border:1px solid rgba(129,140,248,.15);border-radius:100px;padding:1px 6px">${Math.round(tokUsed/1000*10)/10}k tokens</span>`:`<span style="font-size:.58rem;color:#22c55e;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.15);border-radius:100px;padding:1px 6px">💾 ${cachedCount} cached</span>`}
+            <span style="font-size:.58rem;color:#334155">${h.date}</span>
           </div>
-          <p style="font-size:.75rem;color:#94a3b8;line-height:1.4;margin:0">${h.idea?h.idea.substring(0,80)+(h.idea.length>80?'…':''):'—'}</p>
+          <p style="font-size:.75rem;color:#94a3b8;line-height:1.4;margin:0;word-break:break-word">${h.idea?h.idea.substring(0,100)+(h.idea.length>100?'…':''):'—'}</p>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
-          <button onclick="loadFromHistory(${h.id})" style="padding:5px 12px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:7px;color:#38bdf8;font-size:.7rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">↩ Load</button>
-          <button onclick="exportHistoryPDF(${h.id})" style="padding:5px 10px;background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.25);border-radius:7px;color:#818cf8;font-size:.7rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">📄 PDF</button>
-          <button onclick="deleteHistory(${h.id})" style="padding:5px 8px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:7px;color:#f87171;font-size:.7rem;cursor:pointer">✕</button>
+        <div style="display:flex;gap:5px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+          <button onclick="loadFromHistory(${h.id})" title="Load this run into the app — 0 tokens consumed" style="padding:5px 11px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:7px;color:#38bdf8;font-size:.68rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">↩ Load</button>
+          <button onclick="exportHistoryPDF(${h.id})" title="Download PDF for this run" style="padding:5px 10px;background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.25);border-radius:7px;color:#818cf8;font-size:.68rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif">📄 PDF</button>
+          <button onclick="deleteHistory(${h.id})" title="Remove from history" style="padding:5px 8px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:7px;color:#f87171;font-size:.68rem;cursor:pointer">✕</button>
         </div>
       </div>
     </div>`;
@@ -1275,6 +1312,35 @@ function es(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 })();
 
 buildPL();paint();renderHistory();
+
+// ── PWA Install Prompt ────────────────────────────────────────────────────
+let deferredInstallPrompt=null;
+window.addEventListener('beforeinstallprompt',(e)=>{
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  // Show a subtle install banner
+  const banner=document.createElement('div');
+  banner.id='installBanner';
+  banner.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(15,30,55,.95);border:1px solid rgba(56,189,248,.3);border-radius:12px;padding:10px 16px;display:flex;align-items:center;gap:10px;z-index:500;box-shadow:0 8px 32px rgba(0,0,0,.4);max-width:340px;width:90%';
+  banner.innerHTML=`
+    <div style="font-size:1.5rem">📱</div>
+    <div style="flex:1">
+      <div style="font-family:'Syne',sans-serif;font-size:.78rem;font-weight:700;color:#e2e8f0">Install AgentPM</div>
+      <div style="font-size:.68rem;color:#64748b">Add to home screen for offline access</div>
+    </div>
+    <button onclick="installPWA()" style="padding:6px 12px;background:linear-gradient(135deg,#0369a1,#0284c7);border:none;border-radius:8px;color:#fff;font-size:.72rem;font-weight:600;cursor:pointer;font-family:'Syne',sans-serif;white-space:nowrap">Install</button>
+    <button onclick="document.getElementById('installBanner').remove()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:1rem;padding:0;line-height:1">✕</button>`;
+  document.body.appendChild(banner);
+  setTimeout(()=>{if(document.getElementById('installBanner'))document.getElementById('installBanner').remove();},8000);
+});
+
+async function installPWA(){
+  if(!deferredInstallPrompt)return;
+  deferredInstallPrompt.prompt();
+  const{outcome}=await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt=null;
+  if(document.getElementById('installBanner'))document.getElementById('installBanner').remove();
+}
 </script>
 </body>
 </html>
