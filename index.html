@@ -311,8 +311,23 @@ function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':n;}
 
 // ── Cache ─────────────────────────────────────────────────────────────────
 function ck(id,idea){return CPFX+id+'_'+btoa(encodeURIComponent(idea.trim().toLowerCase().substring(0,80))).substring(0,22);}
-function cget(id,idea){if(!S.cache)return null;try{const v=localStorage.getItem(ck(id,idea));return v?JSON.parse(v):null;}catch{return null;}}
-function cset(id,idea,d){if(!S.cache)return;try{localStorage.setItem(ck(id,idea),JSON.stringify(d));}catch{}}
+function cget(id,idea){
+  if(!S.cache)return null;
+  try{
+    const v=localStorage.getItem(ck(id,idea));
+    if(!v)return null;
+    const d=JSON.parse(v);
+    // Reject cached entries with empty or very short text (poisoned cache)
+    if(!d.text||d.text.trim().length<20)return null;
+    return d;
+  }catch{return null;}
+}
+function cset(id,idea,d){
+  if(!S.cache)return;
+  // Only cache if there is real content
+  if(!d.text||d.text.trim().length<20)return;
+  try{localStorage.setItem(ck(id,idea),JSON.stringify(d));}catch{}
+}
 function clearCache(){const ks=Object.keys(localStorage).filter(k=>k.startsWith(CPFX));ks.forEach(k=>localStorage.removeItem(k));alert('Cleared '+ks.length+' cached stage(s).');}
 
 // ── Pause logic ───────────────────────────────────────────────────────────
@@ -579,6 +594,7 @@ async function runStage(id){
     if(S.maxtok && isGate){ const maxTokSaved=Math.round(outTok*0.9); addSaved(0,maxTokSaved,'maxtok'); }
 
     cset(id,idea,{text:r.outputs[id],i:inTok,o:outTok});
+    // ── Never cache empty outputs ─────────────────────────────────────────
     const idx=PL.findIndex(p=>p.id===id);
     if(idx<PL.length-1)r.unlocked[PL[idx+1].id]=true;
     if(id==='i0')r.iterateSummary=r.outputs['i0'];
@@ -637,7 +653,21 @@ function newRelease(){
 // ── PDF Export ────────────────────────────────────────────────────────────
 async function exportPDF(){
   const r=cr();
-  if(Object.keys(r.outputs).length===0){alert('No stage outputs to export yet. Run at least one stage first.');return;}
+  // Auto-purge any poisoned (empty) cache entries before export
+  const idea=document.getElementById('ideaInput').value.trim();
+  PL.forEach(p=>{
+    const k=ck(p.id,idea);
+    try{
+      const v=localStorage.getItem(k);
+      if(v){const d=JSON.parse(v);if(!d.text||d.text.trim().length<20)localStorage.removeItem(k);}
+    }catch{}
+  });
+  // Filter to only stages with real content
+  const filledCount=Object.values(r.outputs).filter(v=>v&&v.trim().length>20).length;
+  if(filledCount===0){
+    alert('No stage content found.\n\nYour cache may have empty entries from a previous bug.\n\nClick "Clear Cache" then run Agentic Mode again.');
+    return;
+  }
   const{jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const PW=210,PH=297,ML=18,MR=18,MT=28,MB=22;
@@ -714,7 +744,7 @@ async function exportPDF(){
   doc.setFillColor(...GOLD);doc.roundedRect(ML,100,5,52,2,2,'F');
   // Label
   doc.setFont('helvetica','bold');doc.setFontSize(7);
-  doc.setTextColor(...GOLD);doc.text('💡  PRODUCT IDEA',ML+10,112);
+  doc.setTextColor(...GOLD);doc.text('>> PRODUCT IDEA',ML+10,112);
   // Cyan rule
   doc.setDrawColor(30,80,140);doc.setLineWidth(0.5);doc.line(ML+10,115,PW-MR,115);
   // Idea text — large, bright, prominent
@@ -778,7 +808,7 @@ async function exportPDF(){
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...MID);doc.text('All stages, gates and iterate phases generated in this release cycle',ML,y+5);y+=12;
   doc.setFillColor(...DARK);doc.rect(ML,y,TW,0.5,'F');y+=7;
   PL.forEach((item,idx)=>{
-    if(!r.outputs[item.id])return;
+    if(!r.outputs[item.id]||r.outputs[item.id].trim().length<20)return;
     y=checkY(y,9);
     const typeColor=item.type==='gate'?GOLD:item.type==='iterate'?PURPLE:CYAN;
     // Row background
@@ -789,7 +819,7 @@ async function exportPDF(){
     doc.text(item.type==='gate'?'GATE':item.type==='iterate'?'ITER':'STAGE',ML+5,y);
     doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(...WHITE);doc.text(item.title,ML+22,y);
     const tok=r.tok[item.id]||{};
-    const tokLabel=tok.cached?'💾 cached':(tok.in||tok.out)?fmt((tok.in||0)+(tok.out||0))+' tok':'—';
+    const tokLabel=tok.cached?'[cached]':(tok.in||tok.out)?fmt((tok.in||0)+(tok.out||0))+' tok':'—';
     doc.setTextColor(tok.cached?GREEN[0]:MID[0],tok.cached?GREEN[1]:MID[1],tok.cached?GREEN[2]:MID[2]);
     doc.setFontSize(7);doc.text(tokLabel,PW-MR,y,{align:'right'});
     doc.setFontSize(8);y+=9;
@@ -797,7 +827,7 @@ async function exportPDF(){
 
   // Content pages
   PL.forEach((item)=>{
-    if(!r.outputs[item.id])return;
+    if(!r.outputs[item.id]||r.outputs[item.id].trim().length<20)return;
     addPage();
     let y=MT+4;
     // Section header
@@ -812,7 +842,7 @@ async function exportPDF(){
     const tok=r.tok[item.id]||{};
     if(tok.in||tok.out){
       doc.setFont('helvetica','normal');doc.setFontSize(6.5);doc.setTextColor(...MID);
-      doc.text((tok.cached?'💾 Cached · ':'')+fmt((tok.in||0)+(tok.out||0))+' tokens',PW-MR,y+9,{align:'right'});
+      doc.text((tok.cached?'[cached] ':'')+fmt((tok.in||0)+(tok.out||0))+' tokens',PW-MR,y+9,{align:'right'});
     }
     y+=18;
 
